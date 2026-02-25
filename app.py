@@ -2,59 +2,61 @@ import streamlit as st
 import openpyxl
 from io import BytesIO
 
-st.set_page_config(page_title="مصلح الأرقام - النسخة الاحترافية", layout="centered")
+st.set_page_config(page_title="معالج ملفات الإكسيل", layout="wide")
 
-st.title("🇪🇬 مصلح الأرقام المصري ")
+st.title("🚀 معالجة ملفات الإكسيل (كل ملف لوحده)")
+st.write("ارفع ملفاتك، البرنامج هيعدل الأرقام وهيديك زرار تحميل لكل ملف بنفس اسمه الأصلي.")
 
-uploaded_file = st.file_uploader("ارفع ملف الإكسيل هنا", type=["xlsx"])
+# رفع ملفات متعددة
+uploaded_files = st.file_uploader("ارفع ملفات الإكسيل هنا", type=["xlsx"], accept_multiple_files=True)
 
-if uploaded_file:
-    wb = openpyxl.load_workbook(uploaded_file)
-    sheet = wb.active
+# خانة تحديد العمود (افتراضي B)
+col_letter = st.text_input("اكتب حرف العمود اللي فيه الأرقام (مثلاً A أو B):", "B").upper()
+
+if uploaded_files:
+    st.divider()
+    st.subheader("الملفات الجاهزة للتحميل:")
     
-    cols = [cell.column_letter for cell in sheet[1]]
-    col_letter = st.selectbox("اختار حرف العمود:", cols)
-
-    if st.button("تعديل وحفظ الملف"):
+    # عمل صفوف (Columns) في الويبسايت عشان الشكل يبقى منظم
+    for uploaded_file in uploaded_files:
+        # 1. فتح الملف ومعالجته في الذاكرة
+        wb = openpyxl.load_workbook(uploaded_file)
+        sheet = wb.active
+        
         def clean_final(val):
             if val is None: return None
-            
             s = str(val).strip()
             if s.endswith('.0'): s = s[:-2]
-            
-            # تنظيف شامل لأي عك قديم (علامات تنصيص أو يساوي)
             s = s.replace('+', '').replace("'", "").replace('=', '')
-            
             if s == "" or not s.isdigit(): return s
-
-            # منطق التصليح
+            
+            # منطق التصليح المصري
             if s.startswith("2001"): s = "201" + s[4:]
             elif s.startswith("1") and not s.startswith("20"): s = "20" + s
             elif s.startswith("01"): s = "20" + s[1:]
             elif not s.startswith("20"): s = "20" + s
-
             return f"+{s}"
 
-        # التنفيذ
+        # تطبيق التعديلات على العمود
         for row in range(1, sheet.max_row + 1):
             cell = sheet[f"{col_letter}{row}"]
-            
-            # 1. تحويل تنسيق الخلية لـ "Text" قبل وضع القيمة
             cell.number_format = '@' 
-            
-            # 2. الحصول على القيمة الجديدة
-            new_val = clean_final(cell.value)
-            
-            # 3. وضع القيمة (بايثون هيبعتها كـ String صافي)
-            cell.value = new_val
+            cell.value = clean_final(cell.value)
 
+        # 2. حفظ الملف المعدل في الذاكرة
         output = BytesIO()
         wb.save(output)
-        
-        st.success("✅ تم الإصلاح! الرقم هيظهر +20 علطول وشكله نظيف.")
-        st.download_button(
-            label="تحميل الملف المعدل 📥",
-            data=output.getvalue(),
-            file_name="Clean_Egyptian_Numbers.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        processed_data = output.getvalue()
+
+        # 3. عرض الملف في الواجهة مع زرار تحميل خاص به بنفس الاسم
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.info(f"📄 {uploaded_file.name}")
+        with col2:
+            st.download_button(
+                label="تحميل المعدل 📥",
+                data=processed_data,
+                file_name=uploaded_file.name, # هنا بنستخدم نفس الاسم الأصلي
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=uploaded_file.name # مفتاح فريد لكل زرار
+            )
