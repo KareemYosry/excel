@@ -1,63 +1,83 @@
 import streamlit as st
-import pandas as pd
+import openpyxl
 from io import BytesIO
 
-st.set_page_config(page_title="مصلح أرقام الموبايل المصرية", layout="centered")
+st.set_page_config(page_title="مصلح الأرقام (حافظ على التنسيق)", layout="centered")
 
-st.title("🇪🇬 أداة تنسيق وتنظيف أرقام الموبايل")
-st.write("ارفع ملف الإكسيل وهيظبطلك الأرقام (يزود +20، يشيل الأصفار الزيادة، ويصلح النواقص)")
+st.title("🇪🇬 أداة تنسيق الأرقام مع الحفاظ على شكل الملف")
+st.write("البرنامج ده هيعدل الأرقام ويسيب الألوان والمقاسات زي ما هي بالظبط.")
 
 # رفع الملف
 uploaded_file = st.file_uploader("ارفع ملف الإكسيل هنا (xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    column_name = st.selectbox("اختار العمود اللي فيه الأرقام:", df.columns)
-    
-    if st.button("ابدأ المعالجة"):
-        def fix_egyptian_number(val):
-            # 1. التأكد إن الخلية مش فاضية
-            if pd.isna(val) or str(val).strip() == "":
-                return ""
-            
-            # 2. تحويل النص لنص وتنظيف المسافات وعلامة الزائد القديمة لو موجودة
-            num = str(val).strip().replace("+", "")
-            
-            # 3. معالجة حالة الصفر الزيادة (مثال: 20010 -> 2010)
-            if num.startswith("2001"):
-                num = "201" + num[4:]
-            
-            # 4. معالجة حالة الرقم اللي بيبدأ بـ 1 علطول (مثال: 100 -> 20100)
-            elif num.startswith("1") and not num.startswith("201"):
-                num = "20" + num
-            
-            # 5. معالجة حالة الرقم اللي بيبدأ بـ 01 (مثال: 010 -> 2010)
-            elif num.startswith("01"):
-                num = "20" + num[1:]
-            
-            # 6. لو الرقم مش بيبدأ بـ 20 خالص وهو رقم موبايل (مثلاً بدأ بـ 11 أو 12)
-            elif (num.startswith("10") or num.startswith("11") or num.startswith("12") or num.startswith("15")) and not num.startswith("20"):
-                 num = "20" + num
+    # تحميل الملف الأصلي باستخدام openpyxl للحفاظ على التنسيق
+    wb = openpyxl.load_workbook(uploaded_file)
+    sheet = wb.active # بيختار أول Sheet
 
-            # إرجاع الرقم بالتنسيق النهائي
-            return f"+{num}"
+    # اختيار العمود (A, B, C...)
+    # بنجيب أسماء العواميد من أول سطر عشان نسهل على المستخدم الاختيار
+    cols = [cell.column_letter for cell in sheet[1]]
+    col_letter = st.selectbox("اختار حرف العمود اللي فيه الأرقام (مثلاً A أو B):", cols)
 
-        # تطبيق الدالة على العمود المختار
-        df[column_name] = df[column_name].astype(str).apply(fix_egyptian_number)
-        
-        # تحويل النتيجة لملف إكسيل
+    if st.button("تعديل وحفظ الملف"):
+        def clean_and_fix(val):
+            if val is None:
+                return None
+            
+            # تحويل القيمة لنص وتنظيفها
+            s = str(val).strip()
+            
+            # 1. إزالة الـ .0 اللي بتظهر مع الأرقام
+            if s.endswith('.0'):
+                s = s[:-2]
+            
+            # إزالة علامة + لو موجودة عشان نصلح الرقم براحتنا
+            s = s.replace('+', '')
+            
+            if s == "":
+                return None
+
+            # 2. معالجة حالة الصفر الزيادة (20010 -> 2010)
+            if s.startswith("2001"):
+                s = "201" + s[4:]
+            
+            # 3. معالجة حالة الرقم اللي بيبدأ بـ 1 (زي 100 -> 20100)
+            elif s.startswith("1") and not s.startswith("20"):
+                s = "20" + s
+                
+            # 4. معالجة حالة الـ 01 (010 -> 2010)
+            elif s.startswith("01"):
+                s = "20" + s[1:]
+            
+            # 5. التأكد إن الرقم بيبدأ بـ 20
+            if not s.startswith("20"):
+                s = "20" + s
+
+            return "+" + s
+
+        # المرور على كل الصفوف في العمود المختار
+        # بنبدأ من صف 1 (عشان ياخد أول سطر معاك زي ما طلبت)
+        for row in range(1, sheet.max_row + 1):
+            cell = sheet[f"{col_letter}{row}"]
+            original_value = cell.value
+            
+            fixed_value = clean_and_fix(original_value)
+            
+            # وضع القيمة الجديدة في الخلية (التنسيق بيفضل زي ما هو تلقائياً)
+            cell.value = fixed_value
+            # التأكد إن الخلية متسجلة كـ Text عشان الإكسيل ميبوظش الـ +
+            cell.data_type = 's' 
+
+        # حفظ الملف في الذاكرة
         output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Sheet1')
-        
+        wb.save(output)
         processed_data = output.getvalue()
-        
-        st.success("✅ تم تنظيف وتنسيق الأرقام بنجاح!")
+
+        st.success("✅ تم التعديل بنجاح مع الحفاظ على كل التنسيقات!")
         st.download_button(
             label="تحميل الملف المعدل 📥",
             data=processed_data,
-            file_name="Formatted_Egyptian_Numbers.xlsx",
+            file_name="Formatted_Preserved_Style.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-st.info("ملاحظة: الكود بيتعامل مع الأرقام كـ Text عشان يحافظ على علامة الـ (+) والأصفار.")
